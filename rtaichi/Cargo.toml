@@ -12,4 +12,7 @@ description = "Rust language binding to the Taichi Runtime C-API."
 proc_macro = true
 
 [dependencies]
+taichi-runtime = "0.0.1"
 syn = { version = "1.0", features = ["full", "extra-traits"] }
+tempdir = "0.3"
+proc-macro-error = "1.0"

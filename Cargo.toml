@@ -1,12 +1,4 @@
-[package]
-name = "rtaichi"
-authors = ["PENGUINLIONG <admin@penguinliong.moe>"]
-version = "0.0.3+1.3.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
-description = "Taichi embedded in Rust"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-taichi-runtime = "0"
+[workspace]
+members = [
+    "rtaichi",
+]

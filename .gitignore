@@ -1,2 +1,6 @@
 /target
-/Cargo.lock
+.env
+.idea
+.vscode
+.vs
+tmp

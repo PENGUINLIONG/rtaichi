@@ -1,9 +1,9 @@
 use std::{collections::{HashMap}, hash::Hash};
 
 use proc_macro2::Ident;
-use syn::{visit::Visit, Expr, Pat, Attribute, Path, Stmt};
+use syn::{visit::Visit, Expr, Pat, Attribute, Path, Stmt, Block};
 
-use crate::{error::{ErrorStore, Result}, Literal, abort, expr_utils::{get_expr_ident, get_pat_ident, get_lit_lit, get_path_ident}, abort_scope};
+use crate::{error::{ErrorStore, Result}, Literal, abort, expr_utils::{get_expr_ident, get_pat_ident, get_lit_lit, get_path_ident, get_expr_lit}, abort_scope};
 
 #[derive(Clone, Copy, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct InstrId(pub usize);
@@ -114,11 +114,6 @@ impl<'ast> InstrParser<'ast> {
         let ident = get_path_ident(i)?;
         self.get_var(ident)
     }
-    // Right values.
-    fn get_var_by_expr(&mut self, i: &Expr) -> Result<InstrId> {
-        let ident = get_expr_ident(i)?;
-        self.get_var(ident)
-    }
 
     fn set_var(&mut self, i: &Ident, id: InstrId) -> Result<()> {
         use std::collections::hash_map::Entry;
@@ -165,7 +160,10 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
         abort_scope!(
             self.es => {
                 ensure_empty_attr!(i);
-                let right = self.get_var_by_expr(&i.right)?;
+                self.push_stack();
+                self.visit_expr(&i.right);
+                let stack = self.pop_stack().unwrap();
+                let right = *stack.get(0).unwrap();
                 self.set_var_by_expr(&i.left, right)?;
             }
         )
@@ -212,7 +210,10 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                 self.declare_var_by_pat(&i.pat)?;
 
                 if let Some(init) = &i.init {
-                    let right = self.get_var_by_expr(&init.1)?;
+                    self.push_stack();
+                    self.visit_expr(&init.1);
+                    let stack = self.pop_stack().unwrap();
+                    let right = *stack.get(0).unwrap();
                     self.set_var_by_pat(&i.pat, right)?;
                 }
             }
@@ -222,12 +223,10 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
 
 pub fn parse_instrs<'ast>(
     es: &'ast mut ErrorStore,
-    stmts: &'ast [Stmt],
+    block: &'ast Block,
 ) -> Vec<Instr> {
     let mut parser = InstrParser::new(es);
-    for stmt in stmts {
-        parser.visit_stmt(stmt);
-    }
+    parser.visit_block(block);
     parser.instrs
 }
 
@@ -235,13 +234,15 @@ pub fn parse_instrs<'ast>(
 mod tests {
     use super::*;
     use quote::quote;
-    use syn::Stmt;
 
     #[test]
     fn test_int_lit() {
         let mut es = ErrorStore::new();
-        let i: Stmt = syn::parse2(quote!(123;)).unwrap();
-        let instrs = parse_instrs(&mut es, &[i]);
+        let block: Block = syn::parse2(quote!({
+            123
+        })).unwrap();
+        let instrs = parse_instrs(&mut es, &block);
+        es.panic();
 
         assert_eq!(instrs.len(), 2);
 
@@ -258,8 +259,11 @@ mod tests {
     #[test]
     fn test_float_lit() {
         let mut es = ErrorStore::new();
-        let i: Stmt = syn::parse2(quote!(123.0;)).unwrap();
-        let instrs = parse_instrs(&mut es, &[i]);
+        let block: Block = syn::parse2(quote!({
+            123.0
+        })).unwrap();
+        let instrs = parse_instrs(&mut es, &block);
+        es.panic();
 
         assert_eq!(instrs.len(), 2);
 
@@ -278,8 +282,11 @@ mod tests {
     #[test]
     fn test_binary_lit() {
         let mut es = ErrorStore::new();
-        let i: Stmt = syn::parse2(quote!(123 + 124;)).unwrap();
-        let instrs = parse_instrs(&mut es, &[i]);
+        let block: Block = syn::parse2(quote!({
+            123 + 124
+        })).unwrap();
+        let instrs = parse_instrs(&mut es, &block);
+        es.panic();
 
         assert_eq!(instrs.len(), 4);
 
@@ -309,6 +316,26 @@ mod tests {
                     a: InstrId(1),
                     b: InstrId(2),
                 }
+            } => {},
+            _ => panic!(),
+        }
+    }
+    #[test]
+    fn test_var_binding() {
+        let mut es = ErrorStore::new();
+        let block: Block = syn::parse2(quote!({
+            let abc = 123;
+            abc
+        })).unwrap();
+        let instrs = parse_instrs(&mut es, &block);
+        es.panic();
+
+        assert_eq!(instrs.len(), 2);
+
+        match instrs.get(1).unwrap() {
+            Instr {
+                id: InstrId(1),
+                operand: Operand::Lit { lit: Literal::Int(123) },
             } => {},
             _ => panic!(),
         }

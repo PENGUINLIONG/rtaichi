@@ -1,11 +1,12 @@
 use crate::{abort, Literal, Result};
+use quote::ToTokens;
 use syn::{Expr, Ident, Path, Lit, Pat};
 
 pub fn get_path_ident<'a>(path: &'a Path) -> Result<&'a Ident> {
     if let Some(ident) = path.get_ident() {
         Ok(ident)
     } else {
-        abort!(path, "expected an identifier");
+        abort!(path, "path '{}' an identifier", path.to_token_stream().to_string());
     }
 }
 
@@ -19,21 +20,27 @@ pub fn get_expr_ident<'a>(expr: &'a Expr) -> Result<&'a Ident> {
         }
         get_path_ident(&path.path)
     } else {
-        abort!(expr, "expected an identifier");
+        abort!(expr, "expr '{}' expected an identifier", expr.to_token_stream().to_string());
     }
 }
 
 pub fn get_pat_ident<'a>(pat: &'a Pat) -> Result<&'a Ident> {
-    if let Pat::Path(x) = pat {
+    if let Pat::Ident(x) = pat {
         if !x.attrs.is_empty() {
             abort!(x, "pat path must not have any attribute");
         }
-        if x.qself.is_some() {
-            abort!(x, "`self` is not available in taichi scope");
+        if x.by_ref.is_some() {
+            abort!(x, "`ref` is not allowed");
         }
-        get_path_ident(&x.path)
+        if x.mutability.is_some() {
+            abort!(x, "`mut` is not allowed");
+        }
+        if x.subpat.is_some() {
+            abort!(x, "subpattern is not allowed");
+        }
+        Ok(&x.ident)
     } else {
-        abort!(pat, "expected an identifier");
+        abort!(pat, "pat '{}' expected an identifier", pat.to_token_stream().to_string());
     }
 }
 

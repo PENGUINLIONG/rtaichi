@@ -2,8 +2,8 @@ pub type Result<T> = syn::Result<T>;
 
 #[macro_export]
 macro_rules! abort {
-    ($span:expr, $($msg:tt)*) => {
-        return Err(syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg,)*)))
+    ($span:expr, $($msg:expr),*) => {
+        return Err(syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg),*)))
     };
     ($es:expr => $res:block) => {
         match $res {
@@ -14,9 +14,9 @@ macro_rules! abort {
             },
         }
     };
-    ($es:expr => ($span:expr, $($msg:tt)*)) => {
+    ($es:expr => ($span:expr, $($msg:expr),*)) => {
         {
-            let e = syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg)*));
+            let e = syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg),*));
             $es.push(e);
             return Default::default();
         }
@@ -70,6 +70,11 @@ impl ErrorStore {
         self.errors.is_empty()
     }
 
+    pub fn panic(&self) {
+        if !self.errors.is_empty() {
+            panic!("{:?}", self.errors);
+        }
+    }
 }
 impl Extend<syn::Error> for ErrorStore {
     fn extend<T: IntoIterator<Item = syn::Error>>(&mut self, iter: T) {

@@ -1,10 +1,12 @@
 use std::fmt::{Write, self};
 
-mod error;
 mod expr_utils;
-mod type_hint;
-mod arg_ty;
-mod arg;
+
+pub mod error;
+pub mod type_hint;
+pub mod arg_ty;
+pub mod arg;
+pub mod expr;
 
 pub use error::Result;
 
@@ -16,7 +18,7 @@ use syn::{ItemFn, Pat, Expr, spanned::Spanned};
 
 
 
-enum Literal {
+pub enum Literal {
     String(String),
     Int(i64),
     Float(f64),

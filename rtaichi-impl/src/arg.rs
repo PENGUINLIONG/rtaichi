@@ -1,10 +1,10 @@
 use syn::{FnArg, Pat, visit::Visit};
 
-use crate::{arg_ty::{parse_arg_ty, KernelArgType}, error::{ErrorStore, Result}, type_hint::{parse_type_hint, TypeHint}, abort, abort_if};
+use crate::{arg_ty::{parse_arg_ty, KernelArgType}, error::{ErrorStore}, type_hint::{parse_type_hint, TypeHint}, abort, abort_if};
 
 pub struct KernelArg {
-    name: String,
-    ty: KernelArgType,
+    pub name: String,
+    pub ty: KernelArgType,
 }
 impl KernelArg {
     /*

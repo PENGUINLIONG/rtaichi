@@ -5,6 +5,7 @@ use crate::{error::ErrorStore, abort};
 
 
 pub enum KernelArgType {
+    Void {},
     Scalar {
         dtype: sys::TiDataType,
     },

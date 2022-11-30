@@ -1,11 +1,10 @@
-use quote::ToTokens;
 use syn::{MetaNameValue, visit::Visit, Attribute};
 
 use crate::{expr_utils::{get_path_ident, get_lit_lit}, Literal, error::ErrorStore, abort};
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum TypeHint {
-    Reserved(),
     NDim(u32),
 }
 

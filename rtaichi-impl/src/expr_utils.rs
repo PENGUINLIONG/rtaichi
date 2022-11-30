@@ -1,5 +1,5 @@
 use crate::{abort, Literal, Result};
-use syn::{Expr, Ident, Path, Lit};
+use syn::{Expr, Ident, Path, Lit, Pat};
 
 pub fn get_path_ident<'a>(path: &'a Path) -> Result<&'a Ident> {
     if let Some(ident) = path.get_ident() {
@@ -20,6 +20,20 @@ pub fn get_expr_ident<'a>(expr: &'a Expr) -> Result<&'a Ident> {
         get_path_ident(&path.path)
     } else {
         abort!(expr, "expected an identifier");
+    }
+}
+
+pub fn get_pat_ident<'a>(pat: &'a Pat) -> Result<&'a Ident> {
+    if let Pat::Path(x) = pat {
+        if !x.attrs.is_empty() {
+            abort!(x, "pat path must not have any attribute");
+        }
+        if x.qself.is_some() {
+            abort!(x, "`self` is not available in taichi scope");
+        }
+        get_path_ident(&x.path)
+    } else {
+        abort!(pat, "expected an identifier");
     }
 }
 

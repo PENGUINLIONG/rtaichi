@@ -20,7 +20,16 @@ macro_rules! abort {
             $es.push(e);
             return Default::default();
         }
-    }
+    };
+    ($es:expr => $res:expr) => {
+        match { $res } {
+            Ok(x) => x,
+            Err(e) => {
+                $es.push(e);
+                return Default::default();
+            },
+        }
+    };
 }
 #[macro_export]
 macro_rules! abort_if {
@@ -29,6 +38,19 @@ macro_rules! abort_if {
     };
     ($pred:expr, $es:expr => ($span:expr, $($msg:tt)*)) => {
         { if $pred { abort!($es => ($span, $($msg)*)); } }
+    };
+    ($pred:expr, ($span:expr, $($msg:tt)*)) => {
+        { if $pred { abort!($span, $($msg)*); } }
+    };
+}
+
+#[macro_export]
+macro_rules! abort_scope {
+    ($es:expr => $body:block) => {
+        match ((|| -> Result<()> {$body; Ok(())})()) {
+            Err(e) => $es.push(e),
+            Ok(()) => {},
+        }
     };
 }
 

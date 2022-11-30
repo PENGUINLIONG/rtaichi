@@ -1,26 +1,42 @@
-use std::{panic};
+use std::fmt::{Write, self};
 
+mod error;
 mod expr_utils;
+mod type_hint;
+mod arg_ty;
 mod arg;
 
-use proc_macro::TokenStream;
-use proc_macro_error::{proc_macro_error, abort};
-use syn::{ItemFn, Pat, Expr};
+pub use error::Result;
 
-use taichi_runtime::sys as sys;
+use proc_macro2::TokenStream;
+use syn::{ItemFn, Pat, Expr, spanned::Spanned};
 
-fn rs2py_expr(expr: &Expr) -> String {
+//use crate::arg::parse_arg;
+
+
+
+
+enum Literal {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
+
+/*
+fn rs2py_expr(expr: &Expr) -> Result<String> {
     match expr {
         Expr::Assign(assign) => {
             assert!(assign.attrs.is_empty());
-            let left = rs2py_expr(&*assign.left);
-            let right = rs2py_expr(&*assign.right);
-            format!("{} = {}", left, right)
+            let left = rs2py_expr(&*assign.left)?;
+            let right = rs2py_expr(&*assign.right)?;
+            Ok(format!("{} = {}", left, right))
         },
         Expr::AssignOp(assign_op) => {
             assert!(assign_op.attrs.is_empty());
-            let left = rs2py_expr(&*assign_op.left);
-            let right = rs2py_expr(&*assign_op.right);
+            let left = rs2py_expr(&*assign_op.left)?;
+            let right = rs2py_expr(&*assign_op.right)?;
             let op = match assign_op.op {
                 syn::BinOp::Eq(_) => "=",
                 syn::BinOp::AddEq(_) => "+=",
@@ -34,12 +50,13 @@ fn rs2py_expr(expr: &Expr) -> String {
                 syn::BinOp::ShlEq(_) => "<<=",
                 syn::BinOp::ShrEq(_) => ">>=",
                 _ => abort!(assign_op.op, "unknown assign op"),
+                //_ => Err(syn::Error::new(assign_op.op.span(), "unknown assign op"))?,
             };
-            format!("{} {} {}", left, op, right)
+            Ok(format!("{} {} {}", left, op, right))
         }
         Expr::Binary(binary) => {
-            let left = rs2py_expr(&binary.left);
-            let right = rs2py_expr(&binary.right);
+            let left = rs2py_expr(&binary.left)?;
+            let right = rs2py_expr(&binary.right)?;
             let op = match binary.op {
                 syn::BinOp::ShrEq(_) => "+",
                 syn::BinOp::Add(_) => "+",
@@ -62,11 +79,11 @@ fn rs2py_expr(expr: &Expr) -> String {
                 syn::BinOp::Gt(_) => ">",
                 _ => abort!(binary.op, "unknown binary op"),
             };
-            format!("({}{}{})", left, op, right)
+            Ok(format!("({}{}{})", left, op, right))
         },
         Expr::Lit(lit) => {
             assert!(lit.attrs.is_empty());
-            match &lit.lit {
+            let lit_str = match &lit.lit {
                 syn::Lit::Int(x) => x.to_string(),
                 syn::Lit::Float(x) => x.to_string(),
                 syn::Lit::Bool(x) => {
@@ -77,7 +94,8 @@ fn rs2py_expr(expr: &Expr) -> String {
                     }
                 },
                 _ => abort!(lit, "unknown literal"),
-            }
+            };
+            Ok(lit_str)
         },
         Expr::Paren(paren) => {
             assert!(paren.attrs.is_empty());
@@ -86,90 +104,66 @@ fn rs2py_expr(expr: &Expr) -> String {
         },
         Expr::Path(path) => {
             assert!(path.attrs.is_empty());
-            path.path.segments.iter()
+            let path_str = path.path.segments.iter()
                 .map(|x| {
                     x.ident.to_string()
                 })
                 .collect::<Vec<_>>()
-                .join(".")
+                .join(".");
+            Ok(path_str)
         },
         Expr::Index(index) => {
             assert!(index.attrs.is_empty());
-            let expr = rs2py_expr(&index.expr);
-            let idx = rs2py_expr(&index.index);
-            format!("{}[{}]", expr, idx)
+            let expr = rs2py_expr(&index.expr)?;
+            let idx = rs2py_expr(&index.index)?;
+            Ok(format!("{}[{}]", expr, idx))
         }
         Expr::Return(ret) => {
             assert!(ret.attrs.is_empty());
-            let value = ret.expr.as_ref()
-                .map(|x| rs2py_expr(&*x))
-                .unwrap_or_default();
-            format!("return {}", value)
+            if let Some(value) = ret.expr.as_ref()
+                .map(|x| rs2py_expr(&*x)) {
+                Ok(format!("return {}", value?))
+            } else {
+                Ok(format!("return"))
+            }
         },
         _ => abort!(expr, "unknown expression"),
     }
 }
-
-enum Literal {
-    String(String),
-    Int(i64),
-    Float(f64),
-    Bool(bool),
+struct Id {
+    id: usize,
+    name: Option<String>,
+}
+enum Value {
+    Literal(Literal),
+    Variable(Id),
 }
 
-enum KernelArgType {
-    Scalar {
-        dtype: sys::TiDataType,
-    },
-    NdArray{
-        dtype: sys::TiDataType,
-        ndim: u32,
-    },
-}
-impl KernelArgType {
-    pub fn pytaichi_type(&self) -> String {
-        match self {
-            KernelArgType::Scalar { dtype } => {
-                match dtype {
-                    sys::TiDataType::F32 => "ti.f32".to_owned(),
-                    sys::TiDataType::I32 => "ti.i32".to_owned(),
-                    _ => unimplemented!(),
-                }
-            },
-            KernelArgType::NdArray { dtype, ndim } => {
-                let ty_name = match dtype {
-                    sys::TiDataType::F16 => "ti.f16",
-                    sys::TiDataType::F32 => "ti.f32",
-                    sys::TiDataType::F64 => "ti.f64",
-                    sys::TiDataType::I8 => "ti.i8",
-                    sys::TiDataType::I16 => "ti.i16",
-                    sys::TiDataType::I32 => "ti.i32",
-                    sys::TiDataType::I64 => "ti.i64",
-                    sys::TiDataType::U8 => "ti.u8",
-                    sys::TiDataType::U16 => "ti.u16",
-                    sys::TiDataType::U32 => "ti.u32",
-                    sys::TiDataType::U64 => "ti.u64",
-                    _ => unimplemented!(),
-                };
-                format!("ti.types.ndarray(dtype={ty_name}, ndim={ndim})")
-            },
-        }
-    }
-}
 
-#[proc_macro_error]
-#[proc_macro_attribute]
-pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let kernel_impl: ItemFn = syn::parse(item).unwrap();
+fn generate_taichi_script_impl(item: TokenStream) -> std::result::Result<String, fmt::Error> {
+    let mut out = String::new();
+
+    let kernel_impl: ItemFn = syn::parse2(item).unwrap();
+
+    let tmpdir = tempdir::TempDir::new("rtaichi")
+        .expect("cannot create tmp for aot module");
+    let module_path = tmpdir.path().to_string_lossy();
 
     let name = kernel_impl.sig.ident.to_string();
-    println!("@ti.kernel");
-    print!("def {}(", name);
+
+    writeln!(out, r#"
+import taichi as ti
+
+ti.init(ti.vulkan)
+"#)?;
+
+    writeln!(out, "@ti.kernel")?;
+    write!(out, "def {}(", name)?;
     for arg in kernel_impl.sig.inputs.into_iter() {
-        let kernel_arg = arg::KernelArg::parse_arg(&arg);
-        print!("{}, ", kernel_arg.pytaichi_kernel_arg_ty());
+        let kernel_arg = parse_arg(&arg);
+        write!(out, "{}, ", kernel_arg.pytaichi_kernel_arg_ty())?;
     }
-    println!("):");
+    writeln!(out, "):")?;
 
     for stmt in kernel_impl.block.stmts {
         match stmt {
@@ -201,16 +195,72 @@ pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 };
 
                 if let Some((_, expr)) = x.init {
-                    println!("    {} = {}", var_name, rs2py_expr(&*expr));
+                    writeln!(out, "    {} = {}", var_name, rs2py_expr(&*expr).unwrap())?;
                 } else {
                     panic!();
                 }
             },
             syn::Stmt::Item(_) => todo!(),
-            syn::Stmt::Expr(expr) => println!("    {}", rs2py_expr(&expr)),
-            syn::Stmt::Semi(expr, _) => println!("    {}", rs2py_expr(&expr)),
+            syn::Stmt::Expr(expr) => writeln!(out, "    {}", rs2py_expr(&expr).unwrap())?,
+            syn::Stmt::Semi(expr, _) => writeln!(out, "    {}", rs2py_expr(&expr).unwrap())?,
         }
     }
 
-    TokenStream::new()
+    writeln!(out, r#"
+m = ti.aot.Module(ti.vulkan)
+m.add_kernel({name})
+m.archive("{module_path}")
+"#)?;
+
+    Ok(out)
 }
+
+pub fn generate_taichi_script(item: TokenStream) -> String {
+    generate_taichi_script_impl(item).unwrap()
+}
+
+
+//#[proc_macro_error]
+//#[proc_macro_attribute]
+//pub fn kernel(_attr: TokenStream, item: TokenStream) -> TokenStream {
+//    let py_script = kernel_impl(item).unwrap();
+//    println!("{py_script}");
+//    TokenStream::new()
+//}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use proc_macro2::TokenStream;
+
+    use crate::generate_taichi_script;
+
+    fn compile(src: &str) -> String {
+        let tt = TokenStream::from_str(src)
+            .expect("cannot parse token tree for source code");
+        generate_taichi_script(tt)
+    }
+
+    #[test]
+    fn test_empty() {
+        let src = "fn f() {}";
+        println!("{}", compile(src));
+    }
+    #[test]
+    fn test_i32_arg() {
+        let src = "fn f(a: i32) {}";
+        println!("{}", compile(src));
+    }
+    #[test]
+    fn test_f32_arg() {
+        let src = "fn f(a: f32) {}";
+        println!("{}", compile(src));
+    }
+    #[test]
+    fn test_ndarray_arg() {
+        let src = "fn f(#[ti(ndim=2)] a: NdArray<i32>) {}";
+        println!("{}", compile(src));
+    }
+}
+*/

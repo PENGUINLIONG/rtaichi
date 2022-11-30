@@ -1,17 +1,15 @@
-use proc_macro_error::abort;
+use crate::{abort, Literal, Result};
 use syn::{Expr, Ident, Path, Lit};
 
-use crate::Literal;
-
-pub fn get_path_ident<'a>(path: &'a Path) -> &'a Ident {
+pub fn get_path_ident<'a>(path: &'a Path) -> Result<&'a Ident> {
     if let Some(ident) = path.get_ident() {
-        ident
+        Ok(ident)
     } else {
         abort!(path, "expected an identifier");
     }
 }
 
-pub fn get_expr_ident<'a>(expr: &'a Expr) -> &'a Ident {
+pub fn get_expr_ident<'a>(expr: &'a Expr) -> Result<&'a Ident> {
     if let Expr::Path(path) = expr {
         if !path.attrs.is_empty() {
             abort!(path, "expr path must not have any attribute");
@@ -25,26 +23,26 @@ pub fn get_expr_ident<'a>(expr: &'a Expr) -> &'a Ident {
     }
 }
 
-pub(crate) fn get_lit_lit(lit: &Lit) -> Literal {
-    match lit {
+pub(crate) fn get_lit_lit(lit: &Lit) -> Result<Literal> {
+    let out = match lit {
         syn::Lit::Str(x) => {
-            return Literal::String(x.value());
+            Literal::String(x.value())
         },
         syn::Lit::Int(x) => {
-            return Literal::Int(x.base10_parse::<i64>().unwrap());
+            Literal::Int(x.base10_parse::<i64>().unwrap())
         },
         syn::Lit::Float(x) => {
-            return Literal::Float(x.base10_parse::<f64>().unwrap());
+            Literal::Float(x.base10_parse::<f64>().unwrap())
         },
         syn::Lit::Bool(x) => {
-            return Literal::Bool(x.value());
+            Literal::Bool(x.value())
         },
-        _ => {},
-    }
-    abort!(lit, "expected a boolean, int, float or string literal");
+        _ => abort!(lit, "expected a boolean, int, float or string literal"),
+    };
+    Ok(out)
 }
 
-pub(crate) fn get_expr_lit(expr: &Expr) -> Literal {
+pub(crate) fn get_expr_lit(expr: &Expr) -> Result<Literal> {
     if let Expr::Lit(lit) = expr {
         assert!(lit.attrs.is_empty());
         get_lit_lit(&lit.lit)

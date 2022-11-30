@@ -1,23 +1,22 @@
-use std::fmt::{Write, self};
-
 mod expr_utils;
 
 pub mod error;
 pub mod type_hint;
 pub mod arg_ty;
 pub mod arg;
-pub mod expr;
+pub mod instr;
+pub mod kernel;
+
+pub mod print;
 
 pub use error::Result;
-
-use proc_macro2::TokenStream;
-use syn::{ItemFn, Pat, Expr, spanned::Spanned};
 
 //use crate::arg::parse_arg;
 
 
 
 
+#[derive(Clone, Debug)]
 pub enum Literal {
     String(String),
     Int(i64),

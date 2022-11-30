@@ -1,15 +1,24 @@
-use std::{collections::{HashMap}, hash::Hash};
+use std::{collections::HashMap};
+use syn::{visit::Visit, Expr, Pat, Attribute, Path, Block, Ident};
 
-use proc_macro2::Ident;
-use syn::{visit::Visit, Expr, Pat, Attribute, Path, Stmt, Block};
+use crate::{error::{ErrorStore, Result}, Literal, abort, abort_scope, arg_ty::KernelArgType, kernel::Kernel};
+use crate::expr_utils::{get_expr_ident, get_pat_ident, get_lit_lit, get_path_ident};
 
-use crate::{error::{ErrorStore, Result}, Literal, abort, expr_utils::{get_expr_ident, get_pat_ident, get_lit_lit, get_path_ident, get_expr_lit}, abort_scope};
-
-#[derive(Clone, Copy, Default, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct InstrId(pub usize);
+impl std::fmt::Display for InstrId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.to_string())
+    }
+}
 
+#[derive(Clone, Debug)]
 pub enum Operand {
     Nop {},
+    Arg {
+        name: String,
+        ty: KernelArgType,
+    },
     Lit {
         lit: Literal,
     },
@@ -24,6 +33,7 @@ impl Default for Operand {
         Operand::Nop {}
     }
 }
+#[derive(Debug)]
 pub struct Instr {
     pub id: InstrId,
     pub operand: Operand,
@@ -54,27 +64,19 @@ macro_rules! ensure_empty_attr {
 
 struct InstrParser<'ast> {
     es: &'ast mut ErrorStore,
+    f: &'ast mut Kernel,
     bindings: HashMap<String, InstrId>,
     stack: Vec<Vec<InstrId>>,
-    instrs: Vec<Instr>,
 }
 impl<'ast> InstrParser<'ast> {
-    fn new(es: &'ast mut ErrorStore) -> Self {
-        Self {
-            es,
-            bindings: HashMap::new(),
-            stack: Vec::new(),
-            // Instruction #0 is reserved. For simplicity it points to a nop.
-            instrs: vec![Instr::new(InstrId(0), Operand::Nop{})],
-        }
+    fn new(
+        es: &'ast mut ErrorStore,
+        f: &'ast mut Kernel,
+        bindings: &HashMap<String, InstrId>
+    ) -> Self {
+        Self { es, f, bindings: bindings.clone(), stack: Vec::new() }
     }
 
-    fn create_instr<'a>(&'a mut self, operand: Operand) -> InstrId {
-        let id = InstrId(self.instrs.len());
-        let instr = Instr { id, operand };
-        self.instrs.push(instr);
-        id
-    }
 
     fn push_stack(&mut self) {
         self.stack.push(Vec::new());
@@ -89,14 +91,10 @@ impl<'ast> InstrParser<'ast> {
     }
 
     fn declare_var(&mut self, i: &Ident) -> Result<()> {
-        use std::collections::hash_map::Entry;
-        match self.bindings.entry(i.to_string()) {
-            Entry::Occupied(_) => abort!(i, "variable is already declared"),
-            Entry::Vacant(entry) => {
-                entry.insert(InstrId(0));
-                Ok(())
-            },
-        }
+        // Doesn't care whether it's been declared before because Rust does
+        // support variable shadowing.
+        self.bindings.insert(i.to_string(), InstrId(0));
+        Ok(())
     }
     fn declare_var_by_pat(&mut self, i: &Pat) -> Result<()> {
         let ident = get_pat_ident(i)?;
@@ -142,7 +140,7 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
             self.es => {
                 ensure_empty_attr!(i);
                 let lit = get_lit_lit(&i.lit)?;
-                let id = self.create_instr(Operand::Lit { lit });
+                let id = self.f.create_instr(Operand::Lit { lit });
                 self.push_arg(id);
             }
         )
@@ -180,7 +178,7 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                     syn::BinOp::Sub(_) => "-",
                     syn::BinOp::Mul(_) => "*",
                     syn::BinOp::Div(_) => "/",
-                    syn::BinOp::Rem(_) => " mod ",
+                    syn::BinOp::Rem(_) => "%",
                     syn::BinOp::And(_) => "&&",
                     syn::BinOp::Or(_) => "||",
                     syn::BinOp::BitXor(_) => "^",
@@ -199,7 +197,37 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                 let args = self.pop_stack().unwrap();
                 let a = *args.get(0).unwrap();
                 let b = *args.get(1).unwrap();
-                self.create_instr(Operand::Binary { op, a, b });
+                let id = self.f.create_instr(Operand::Binary { op, a, b });
+                self.push_arg(id);
+            }
+        )
+    }
+    fn visit_expr_assign_op(&mut self, i: &'ast syn::ExprAssignOp) {
+        abort_scope!(
+            self.es => {
+                ensure_empty_attr!(i);
+                self.push_stack();
+                self.visit_expr(&i.left);
+                self.visit_expr(&i.right);
+                let op = match i.op {
+                    syn::BinOp::AddEq(_) => "+",
+                    syn::BinOp::SubEq(_) => "-",
+                    syn::BinOp::MulEq(_) => "*",
+                    syn::BinOp::DivEq(_) => "/",
+                    syn::BinOp::RemEq(_) => "%",
+                    syn::BinOp::BitXorEq(_) => "^",
+                    syn::BinOp::BitAndEq(_) => "&",
+                    syn::BinOp::BitOrEq(_) => "|",
+                    syn::BinOp::ShlEq(_) => "<<",
+                    syn::BinOp::ShrEq(_) => ">>",
+                    _ => abort!(&i.op, "invalid assign op"),
+                };
+                let args = self.pop_stack().unwrap();
+                let a = *args.get(0).unwrap();
+                let b = *args.get(1).unwrap();
+                let id = self.f.create_instr(Operand::Binary { op, a, b });
+                self.push_arg(id);
+                self.set_var_by_expr(&i.left, id)?;
             }
         )
     }
@@ -223,11 +251,12 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
 
 pub fn parse_instrs<'ast>(
     es: &'ast mut ErrorStore,
+    f: &'ast mut Kernel,
+    bindings: &HashMap<String, InstrId>,
     block: &'ast Block,
-) -> Vec<Instr> {
-    let mut parser = InstrParser::new(es);
+) {
+    let mut parser = InstrParser::new(es, f, bindings);
     parser.visit_block(block);
-    parser.instrs
 }
 
 #[cfg(test)]
@@ -235,13 +264,23 @@ mod tests {
     use super::*;
     use quote::quote;
 
+    fn parse_instrs2<'ast>(
+        es: &'ast mut ErrorStore,
+        block: &'ast Block,
+    ) -> Vec<Instr> {
+        let mut f = Kernel::new();
+        let mut bindings = HashMap::new();
+        parse_instrs(es, &mut f, &mut bindings, block);
+        f.instrs
+    }
+
     #[test]
     fn test_int_lit() {
         let mut es = ErrorStore::new();
         let block: Block = syn::parse2(quote!({
             123
         })).unwrap();
-        let instrs = parse_instrs(&mut es, &block);
+        let instrs = parse_instrs2(&mut es, &block);
         es.panic();
 
         assert_eq!(instrs.len(), 2);
@@ -262,7 +301,7 @@ mod tests {
         let block: Block = syn::parse2(quote!({
             123.0
         })).unwrap();
-        let instrs = parse_instrs(&mut es, &block);
+        let instrs = parse_instrs2(&mut es, &block);
         es.panic();
 
         assert_eq!(instrs.len(), 2);
@@ -285,7 +324,7 @@ mod tests {
         let block: Block = syn::parse2(quote!({
             123 + 124
         })).unwrap();
-        let instrs = parse_instrs(&mut es, &block);
+        let instrs = parse_instrs2(&mut es, &block);
         es.panic();
 
         assert_eq!(instrs.len(), 4);
@@ -327,7 +366,7 @@ mod tests {
             let abc = 123;
             abc
         })).unwrap();
-        let instrs = parse_instrs(&mut es, &block);
+        let instrs = parse_instrs2(&mut es, &block);
         es.panic();
 
         assert_eq!(instrs.len(), 2);
@@ -338,6 +377,43 @@ mod tests {
                 operand: Operand::Lit { lit: Literal::Int(123) },
             } => {},
             _ => panic!(),
+        }
+    }
+    #[test]
+    fn test_var_assign_op() {
+        let mut es = ErrorStore::new();
+        let block: Block = syn::parse2(quote!({
+            let abc = 123;
+            abc += 1;
+            abc
+        })).unwrap();
+        let instrs = parse_instrs2(&mut es, &block);
+        es.panic();
+
+        for instr in instrs {
+            match instr {
+                Instr {
+                    id: InstrId(0),
+                    operand: Operand::Nop {},
+                } => {},
+                Instr {
+                    id: InstrId(1),
+                    operand: Operand::Lit { lit: Literal::Int(123) },
+                } => {},
+                Instr {
+                    id: InstrId(2),
+                    operand: Operand::Lit { lit: Literal::Int(1) },
+                } => {},
+                Instr {
+                    id: InstrId(3),
+                    operand: Operand::Binary {
+                        op: "+",
+                        a: InstrId(1),
+                        b: InstrId(2)
+                    },
+                } => {},
+                _ => panic!("{:?}", instr),
+            }
         }
     }
 }

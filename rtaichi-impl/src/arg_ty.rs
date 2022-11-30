@@ -4,6 +4,7 @@ use taichi_runtime::sys::{self};
 use crate::{error::ErrorStore, abort};
 
 
+#[derive(Clone, Debug)]
 pub enum KernelArgType {
     Void {},
     Scalar {

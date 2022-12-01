@@ -1,26 +1,12 @@
 use crate::{abort, Result, instr::Literal};
 use quote::ToTokens;
-use syn::{Expr, Ident, Path, Lit, Pat};
+use syn::{Ident, Path, Lit, Pat};
 
 pub fn get_path_ident<'a>(path: &'a Path) -> Result<&'a Ident> {
     if let Some(ident) = path.get_ident() {
         Ok(ident)
     } else {
         abort!(path, "path '{}' an identifier", path.to_token_stream().to_string());
-    }
-}
-
-pub fn get_expr_ident<'a>(expr: &'a Expr) -> Result<&'a Ident> {
-    if let Expr::Path(path) = expr {
-        if !path.attrs.is_empty() {
-            abort!(path, "expr path must not have any attribute");
-        }
-        if path.qself.is_some() {
-            abort!(path, "`self` is not available in taichi scope");
-        }
-        get_path_ident(&path.path)
-    } else {
-        abort!(expr, "expr '{}' expected an identifier", expr.to_token_stream().to_string());
     }
 }
 
@@ -63,11 +49,3 @@ pub(crate) fn get_lit_lit(lit: &Lit) -> Result<Literal> {
     Ok(out)
 }
 
-pub(crate) fn get_expr_lit(expr: &Expr) -> Result<Literal> {
-    if let Expr::Lit(lit) = expr {
-        assert!(lit.attrs.is_empty());
-        get_lit_lit(&lit.lit)
-    } else {
-        abort!(expr, "expected a boolean, int, float or string literal");
-    }
-}

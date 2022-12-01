@@ -49,6 +49,9 @@ pub enum Operand {
         dst: InstrId,
         src: InstrId,
     },
+    Vector {
+        elems: Vec<InstrId>,
+    }
 }
 impl Default for Operand {
     fn default() -> Self {
@@ -254,6 +257,21 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                 let id = self.f.create_instr(Operand::Binary { op, a, b });
                 self.push_id(id);
                 let id = self.f.create_instr(Operand::Assign { dst: a, src: id });
+                self.push_id(id);
+            }
+        )
+    }
+    fn visit_expr_array(&mut self, i: &'ast syn::ExprArray) {
+        abort_scope!(
+            self.es => {
+                ensure_empty_attr!(i);
+                self.push_stack();
+                for elem in i.elems.iter() {
+                    self.visit_expr(elem);
+                }
+                let stack = self.pop_stack().unwrap();
+
+                let id = self.f.create_instr(Operand::Vector { elems: stack });
                 self.push_id(id);
             }
         )

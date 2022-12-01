@@ -131,6 +131,14 @@ impl Printer {
                 let dst = self.print_instr(dst, kernel)?;
                 Some(format!("{dst} = {src}"))
             },
+            Operand::Vector { elems } => {
+                let mut elems2 = Vec::new();
+                for elem in elems {
+                    let elem = self.print_instr(elem, kernel)?;
+                    elems2.push(elem);
+                }
+                Some(format!("ti.Vector({})", elems2.join(", ")))
+            },
         }
     }
     pub fn print_instrs(&mut self, kernel: &Kernel) {
@@ -144,7 +152,7 @@ impl Printer {
     }
 }
 
-pub fn print_kernel(kernel: Kernel) -> String {
+pub fn print_kernel(kernel: Kernel, base_dir: &str) -> String {
     let mut printer = Printer {
         syms: Vec::new(),
         params: Vec::new(),
@@ -175,7 +183,7 @@ g = gb.compile()
 
 m = ti.aot.Module(ti.vulkan)
 m.add_graph('g', g)
-m.archive("module.tcm")
+m.archive("{base_dir}/module.tcm")
 "#);
 
     python_script
@@ -201,7 +209,7 @@ mod tests {
         let kernel = parse_kernel(&mut es, &i);
         es.panic();
 
-        let python_script = print_kernel(kernel);
+        let python_script = print_kernel(kernel, "tmp");
         println!("{}", python_script);
         let expected = r#"
 import taichi as ti
@@ -223,7 +231,7 @@ g = gb.compile()
 
 m = ti.aot.Module(ti.vulkan)
 m.add_graph('g', g)
-m.archive("module.tcm")
+m.archive("tmp/module.tcm")
 "#;
         assert_eq!(expected, python_script);
     }

@@ -6,20 +6,31 @@ use crate::{error::ErrorStore, instr::{Instr, Operand, InstrId, parse_instrs}, a
 
 pub struct Kernel {
     pub instrs: Vec<Instr>,
+    pub roots: Vec<InstrId>,
 }
 impl Kernel {
     pub fn new() -> Self {
         Self {
             // Instruction #0 is reserved. For simplicity it points to a nop.
             instrs: vec![Instr::new(InstrId(0), Operand::Nop{})],
+            roots: Vec::new(),
         }
     }
 
-    pub fn create_instr<'a>(&'a mut self, operand: Operand) -> InstrId {
+    pub fn create_instr(&mut self, operand: Operand) -> InstrId {
         let id = InstrId(self.instrs.len());
         let instr = Instr { id, operand };
         self.instrs.push(instr);
         id
+    }
+    pub fn reg_root_instr(&mut self, id: InstrId) {
+        // Don't repeatly register a root.
+        if let Some(x) = self.roots.last() {
+            if *x == id {
+                return;
+            }
+        }
+        self.roots.push(id);
     }
 }
 
@@ -59,7 +70,7 @@ pub fn parse_kernel<'ast>(es: &'ast mut ErrorStore, i: &'ast ItemFn) -> Kernel {
 mod tests {
     use proc_macro2::TokenStream;
     use quote::quote;
-    use taichi_runtime::sys::TiDataType;
+    use taichi_sys::TiDataType;
     use crate::arg_ty::KernelArgType;
 
     use super::*;

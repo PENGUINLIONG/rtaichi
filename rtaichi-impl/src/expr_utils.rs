@@ -1,4 +1,4 @@
-use crate::{abort, Literal, Result};
+use crate::{abort, Result, instr::Literal};
 use quote::ToTokens;
 use syn::{Expr, Ident, Path, Lit, Pat};
 

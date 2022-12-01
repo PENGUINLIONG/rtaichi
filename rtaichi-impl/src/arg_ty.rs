@@ -1,5 +1,5 @@
 use syn::{visit::Visit, TypePath, Type};
-use taichi_runtime::sys::{self};
+use taichi_sys as sys;
 
 use crate::{error::ErrorStore, abort};
 
@@ -15,38 +15,6 @@ pub enum KernelArgType {
         ndim: Option<u32>,
     },
 }
-/*
-impl KernelArgType {
-    pub fn pytaichi_type(&self) -> String {
-        match self {
-            KernelArgType::Scalar { dtype } => {
-                match dtype {
-                    sys::TiDataType::F32 => "ti.f32".to_owned(),
-                    sys::TiDataType::I32 => "ti.i32".to_owned(),
-                    _ => unimplemented!(),
-                }
-            },
-            KernelArgType::NdArray { dtype, ndim } => {
-                let ty_name = match dtype {
-                    sys::TiDataType::F16 => "ti.f16",
-                    sys::TiDataType::F32 => "ti.f32",
-                    sys::TiDataType::F64 => "ti.f64",
-                    sys::TiDataType::I8 => "ti.i8",
-                    sys::TiDataType::I16 => "ti.i16",
-                    sys::TiDataType::I32 => "ti.i32",
-                    sys::TiDataType::I64 => "ti.i64",
-                    sys::TiDataType::U8 => "ti.u8",
-                    sys::TiDataType::U16 => "ti.u16",
-                    sys::TiDataType::U32 => "ti.u32",
-                    sys::TiDataType::U64 => "ti.u64",
-                    _ => unimplemented!(),
-                };
-                format!("ti.types.ndarray(dtype={ty_name}, elem_shape=tuple(), field_dim={ndim})")
-            },
-        }
-    }
-}
-*/
 
 struct ArgumentTypeParser<'ast> {
     es: &'ast mut ErrorStore,
@@ -156,7 +124,7 @@ pub fn parse_arg_ty<'ast>(
 mod tests {
     use super::*;
     use quote::quote;
-    use taichi_runtime::sys::TiDataType;
+    use taichi_sys::TiDataType;
 
     #[test]
     fn test_parse_i32() {

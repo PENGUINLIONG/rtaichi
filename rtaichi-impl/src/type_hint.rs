@@ -1,6 +1,6 @@
 use syn::{MetaNameValue, visit::Visit, Attribute};
 
-use crate::{expr_utils::{get_path_ident, get_lit_lit}, Literal, error::ErrorStore, abort};
+use crate::{expr_utils::{get_path_ident, get_lit_lit}, error::ErrorStore, abort, instr::Literal};
 
 #[non_exhaustive]
 #[derive(Debug)]

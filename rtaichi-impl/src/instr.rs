@@ -1,8 +1,8 @@
 use std::{collections::HashMap};
-use syn::{visit::Visit, Expr, Pat, Attribute, Path, Block, Ident};
+use syn::{visit::Visit, Attribute, Path, Block, Ident};
 
-use crate::{error::{ErrorStore, Result}, Literal, abort, abort_scope, arg_ty::KernelArgType, kernel::Kernel};
-use crate::expr_utils::{get_expr_ident, get_pat_ident, get_lit_lit, get_path_ident};
+use crate::{error::{ErrorStore, Result}, abort, abort_scope, arg_ty::KernelArgType, kernel::Kernel};
+use crate::expr_utils::{get_pat_ident, get_lit_lit, get_path_ident};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct InstrId(pub usize);
@@ -13,11 +13,22 @@ impl std::fmt::Display for InstrId {
 }
 
 #[derive(Clone, Debug)]
+pub enum Literal {
+    String(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
+#[derive(Clone, Debug)]
 pub enum Operand {
     Nop {},
     Arg {
         name: String,
         ty: KernelArgType,
+    },
+    Var {
+        name: String,
     },
     Lit {
         lit: Literal,
@@ -26,7 +37,18 @@ pub enum Operand {
         op: &'static str,
         a: InstrId,
         b: InstrId,
-    }
+    },
+    Accessor {
+        base: InstrId,
+        index: InstrId,
+    },
+    Tuple {
+        elems: Vec<InstrId>,
+    },
+    Assign {
+        dst: InstrId,
+        src: InstrId,
+    },
 }
 impl Default for Operand {
     fn default() -> Self {
@@ -84,54 +106,26 @@ impl<'ast> InstrParser<'ast> {
     fn pop_stack(&mut self) -> Option<Vec<InstrId>> {
         self.stack.pop()
     }
-    fn push_arg(&mut self, id: InstrId) {
+    fn push_id(&mut self, id: InstrId) {
         if let Some(last_stack) = self.stack.last_mut() {
             last_stack.push(id);
         }
     }
 
-    fn declare_var(&mut self, i: &Ident) -> Result<()> {
-        // Doesn't care whether it's been declared before because Rust does
-        // support variable shadowing.
-        self.bindings.insert(i.to_string(), InstrId(0));
+    fn set_alias(&mut self, i: &Ident, id: InstrId) -> Result<()> {
+        self.bindings.insert(i.to_string(), id);
         Ok(())
     }
-    fn declare_var_by_pat(&mut self, i: &Pat) -> Result<()> {
-        let ident = get_pat_ident(i)?;
-        self.declare_var(ident)
-    }
-
-    fn get_var(&mut self, i: &Ident) -> Result<InstrId> {
+    fn resolve_alias(&mut self, i: &Ident) -> Result<InstrId> {
         if let Some(x) = self.bindings.get(&i.to_string()) {
             Ok(*x)
         } else {
-            abort!(i, "variable is used before declaration");
+            abort!(i, "ident {i} doesn't resolve to any instr");
         }
     }
-    fn get_var_by_path(&mut self, i: &Path) -> Result<InstrId> {
+    fn resolve_alias_by_path(&mut self, i: &Path) -> Result<InstrId> {
         let ident = get_path_ident(i)?;
-        self.get_var(ident)
-    }
-
-    fn set_var(&mut self, i: &Ident, id: InstrId) -> Result<()> {
-        use std::collections::hash_map::Entry;
-        match self.bindings.entry(i.to_string()) {
-            Entry::Occupied(mut entry) => {
-                entry.insert(id);
-                Ok(())
-            },
-            Entry::Vacant(_) => {
-                abort!(i, "variable is assgned before declaration");
-            },
-        }
-    }
-    fn set_var_by_expr(&mut self, i: &Expr, id: InstrId) -> Result<()> {
-        let ident = get_expr_ident(i)?;
-        self.set_var(ident, id)
-    }
-    fn set_var_by_pat(&mut self, i: &Pat, id: InstrId) -> Result<()> {
-        let ident = get_pat_ident(i)?;
-        self.set_var(ident, id)
+        self.resolve_alias(ident)
     }
 }
 impl<'ast> Visit<'ast> for InstrParser<'ast> {
@@ -141,7 +135,7 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                 ensure_empty_attr!(i);
                 let lit = get_lit_lit(&i.lit)?;
                 let id = self.f.create_instr(Operand::Lit { lit });
-                self.push_arg(id);
+                self.push_id(id);
             }
         )
     }
@@ -149,8 +143,37 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
         abort_scope!(
             self.es => {
                 ensure_empty_attr!(i);
-                let id = self.get_var_by_path(&i.path)?;
-                self.push_arg(id);
+                let id = self.resolve_alias_by_path(&i.path)?;
+                self.push_id(id);
+            }
+        )
+    }
+    fn visit_expr_index(&mut self, i: &'ast syn::ExprIndex) {
+        abort_scope!(
+            self.es => {
+                ensure_empty_attr!(i);
+                self.push_stack();
+                self.visit_expr(&i.expr);
+                self.visit_expr(&i.index);
+                let stack = self.pop_stack().unwrap();
+                let base = stack[0];
+                let index = stack[1];
+                let id = self.f.create_instr(Operand::Accessor { base, index });
+                self.push_id(id);
+            }
+        )
+    }
+    fn visit_expr_tuple(&mut self, i: &'ast syn::ExprTuple) {
+        abort_scope!(
+            self.es => {
+                ensure_empty_attr!(i);
+                self.push_stack();
+                for elem in i.elems.iter() {
+                    self.visit_expr(&elem);
+                }
+                let stack = self.pop_stack().unwrap();
+                let id = self.f.create_instr(Operand::Tuple { elems: stack });
+                self.push_id(id);
             }
         )
     }
@@ -159,10 +182,13 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
             self.es => {
                 ensure_empty_attr!(i);
                 self.push_stack();
+                self.visit_expr(&i.left);
                 self.visit_expr(&i.right);
                 let stack = self.pop_stack().unwrap();
-                let right = *stack.get(0).unwrap();
-                self.set_var_by_expr(&i.left, right)?;
+                let src = stack[1];
+                let dst = stack[0];
+                let id = self.f.create_instr(Operand::Assign { dst, src });
+                self.push_id(id);
             }
         )
     }
@@ -194,11 +220,11 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                     syn::BinOp::Gt(_) => ">",
                     _ => abort!(&i.op, "invalid binary op"),
                 };
-                let args = self.pop_stack().unwrap();
-                let a = *args.get(0).unwrap();
-                let b = *args.get(1).unwrap();
+                let stack = self.pop_stack().unwrap();
+                let a = stack[0];
+                let b = stack[1];
                 let id = self.f.create_instr(Operand::Binary { op, a, b });
-                self.push_arg(id);
+                self.push_id(id);
             }
         )
     }
@@ -223,11 +249,12 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
                     _ => abort!(&i.op, "invalid assign op"),
                 };
                 let args = self.pop_stack().unwrap();
-                let a = *args.get(0).unwrap();
-                let b = *args.get(1).unwrap();
+                let a = args[0];
+                let b = args[1];
                 let id = self.f.create_instr(Operand::Binary { op, a, b });
-                self.push_arg(id);
-                self.set_var_by_expr(&i.left, id)?;
+                self.push_id(id);
+                let id = self.f.create_instr(Operand::Assign { dst: a, src: id });
+                self.push_id(id);
             }
         )
     }
@@ -235,17 +262,27 @@ impl<'ast> Visit<'ast> for InstrParser<'ast> {
         abort_scope!(
             self.es => {
                 ensure_empty_attr!(i);
-                self.declare_var_by_pat(&i.pat)?;
+                let name = get_pat_ident(&i.pat)?;
+                let id = self.f.create_instr(Operand::Var { name: name.to_string() });
+                self.push_id(id);
+                self.set_alias(&name, id)?;
 
                 if let Some(init) = &i.init {
                     self.push_stack();
                     self.visit_expr(&init.1);
                     let stack = self.pop_stack().unwrap();
-                    let right = *stack.get(0).unwrap();
-                    self.set_var_by_pat(&i.pat, right)?;
+                    let right = stack[0];
+                    let id = self.f.create_instr(Operand::Assign { dst: id, src: right });
+                    self.push_id(id);
                 }
             }
         )
+    }
+    fn visit_stmt(&mut self, i: &'ast syn::Stmt) {
+        syn::visit::visit_stmt(self, i);
+        if let Some(root) = self.f.instrs.last() {
+            self.f.reg_root_instr(root.id);
+        }
     }
 }
 
@@ -369,14 +406,28 @@ mod tests {
         let instrs = parse_instrs2(&mut es, &block);
         es.panic();
 
-        assert_eq!(instrs.len(), 2);
-
-        match instrs.get(1).unwrap() {
-            Instr {
-                id: InstrId(1),
-                operand: Operand::Lit { lit: Literal::Int(123) },
-            } => {},
-            _ => panic!(),
+        for instr in instrs {
+            match instr {
+                Instr {
+                    id: InstrId(0),
+                    operand: Operand::Nop {},
+                } => {},
+                Instr {
+                    id: InstrId(1),
+                    operand: Operand::Var { name },
+                } => {
+                    assert_eq!(name, "abc");
+                },
+                Instr {
+                    id: InstrId(2),
+                    operand: Operand::Lit { lit: Literal::Int(123) },
+                } => {},
+                Instr {
+                    id: InstrId(3),
+                    operand: Operand::Assign { src: InstrId(2), dst: InstrId(1) },
+                } => {},
+                _ => panic!("{:?}", instr),
+            }
         }
     }
     #[test]
@@ -398,19 +449,33 @@ mod tests {
                 } => {},
                 Instr {
                     id: InstrId(1),
+                    operand: Operand::Var { name }
+                } => {
+                    assert_eq!(name, "abc");
+                },
+                Instr {
+                    id: InstrId(2),
                     operand: Operand::Lit { lit: Literal::Int(123) },
                 } => {},
                 Instr {
-                    id: InstrId(2),
+                    id: InstrId(3),
+                    operand: Operand::Assign { dst: InstrId(1), src: InstrId(2) }
+                } => {},
+                Instr {
+                    id: InstrId(4),
                     operand: Operand::Lit { lit: Literal::Int(1) },
                 } => {},
                 Instr {
-                    id: InstrId(3),
+                    id: InstrId(5),
                     operand: Operand::Binary {
                         op: "+",
                         a: InstrId(1),
-                        b: InstrId(2)
+                        b: InstrId(4)
                     },
+                } => {},
+                Instr {
+                    id: InstrId(6),
+                    operand: Operand::Assign { dst: InstrId(1), src: InstrId(5) }
                 } => {},
                 _ => panic!("{:?}", instr),
             }

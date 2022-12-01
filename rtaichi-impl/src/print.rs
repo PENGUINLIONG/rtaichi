@@ -1,6 +1,6 @@
-use taichi_runtime::sys::TiDataType;
+use taichi_sys::TiDataType;
 
-use crate::{instr::Instr, arg_ty::KernelArgType, kernel::Kernel};
+use crate::{instr::{Instr, Operand, InstrId, Literal}, arg_ty::KernelArgType, kernel::Kernel};
 
 fn get_dtype_name(dtype: &TiDataType) -> &'static str {
     match dtype {
@@ -40,64 +40,122 @@ impl Block {
 }
 
 struct Printer {
+    syms: Vec<String>,
+    params: Vec<String>,
     args: Vec<String>,
     block: Block,
 }
 impl Printer {
-    fn print_instr(&mut self, instr: &Instr) {
+    fn print_arg_declr(&mut self, instr: &Instr) {
         match &instr.operand {
-            crate::instr::Operand::Nop {} => {
-                let code = "None".to_string();
-                self.block.commit_line(code);
-            },
-            crate::instr::Operand::Arg { name, ty } => {
-                let arg_ty = match ty {
-                    KernelArgType::Void{} => "None".to_string(),
+            Operand::Arg { name, ty } => {
+                let sym_declr = match ty {
+                    KernelArgType::Scalar { dtype } => {
+                        let dtype_name = get_dtype_name(dtype);
+                        format!("sym_{name} = ti.graph.Arg(ti.graph.ArgKind.SCALAR, '{name}', {dtype_name})")
+                    },
+                    KernelArgType::NdArray { dtype, ndim } => {
+                        let dtype_name = get_dtype_name(dtype);
+                        let ndim = ndim.unwrap();
+                        format!("sym_{name} = ti.graph.Arg(ti.graph.ArgKind.NDARRAY, '{name}', {dtype_name}, field_dim={ndim})")
+                    }
+                    _ => panic!("unsupported type {ty:?}"),
+                };
+
+                let param_ty = match ty {
                     KernelArgType::Scalar { dtype } => {
                         get_dtype_name(dtype).to_string()
                     },
                     KernelArgType::NdArray { dtype, ndim } => {
                         let dtype_name = get_dtype_name(dtype);
                         let ndim = ndim.unwrap();
-                        format!("ti.types.ndarray(dtype={dtype_name}, ndim={ndim})")
+                        format!("ti.types.ndarray({dtype_name}, field_dim={ndim})")
                     },
+                    _ => panic!("unsupported type {ty:?}"),
                 };
-                let arg_declr = format!("{name}: {arg_ty}");
-                self.args.push(arg_declr);
+                let param_declr = format!("_{name}: {param_ty}");
 
-                let code = format!("_{} = {}", instr.id, name);
-                self.block.commit_line(code);
+                let arg_declr = format!("sym_{name}");
+
+                self.syms.push(sym_declr);
+                self.params.push(param_declr);
+                self.args.push(arg_declr);
             },
-            crate::instr::Operand::Lit { lit } => {
+            _ => {},
+        }
+    }
+    pub fn print_arg_declrs(&mut self, kernel: &Kernel) {
+        for instr in kernel.instrs.iter() {
+            self.print_arg_declr(&instr);
+        }
+    }
+    fn print_instr(&mut self, id: &InstrId, kernel: &Kernel) -> Option<String> {
+        let instr = &kernel.instrs[id.0];
+        match &instr.operand {
+            Operand::Nop {} => None,
+            Operand::Arg { name, .. } => {
+                Some(format!("_{name}"))
+            },
+            Operand::Var { name } => {
+                Some(name.clone())
+            },
+            Operand::Lit { lit } => {
                 let x = match lit {
-                    crate::Literal::String(x) => x.to_string(),
-                    crate::Literal::Int(x) => x.to_string(),
-                    crate::Literal::Float(x) => x.to_string(),
-                    crate::Literal::Bool(x) => x.to_string(),
+                    Literal::String(x) => x.to_string(),
+                    Literal::Int(x) => x.to_string(),
+                    Literal::Float(x) => x.to_string(),
+                    Literal::Bool(x) => x.to_string(),
                 };
-                let code = format!("_{} = {}", instr.id, x);
-                self.block.commit_line(code);
+                Some(x)
             },
-            crate::instr::Operand::Binary { op, a, b } => {
-                let code = format!("_{} = (_{} {} _{})", instr.id, a, op, b);
-                self.block.commit_line(code);
+            Operand::Binary { op, a, b } => {
+                let a = self.print_instr(a, kernel)?;
+                let b = self.print_instr(b, kernel)?;
+                Some(format!("({a} {op} {b})"))
+            },
+            Operand::Accessor { base, index } => {
+                let base = self.print_instr(base, kernel)?;
+                let index = self.print_instr(index, kernel)?;
+                Some(format!("{base}[{index}]"))
+            },
+            Operand::Tuple { elems } => {
+                let mut inner = Vec::with_capacity(elems.len());
+                for elem in elems.iter() {
+                    inner.push(self.print_instr(elem, kernel)?);
+                }
+
+                Some(format!("({})", inner.join(", ")))
+            },
+            Operand::Assign { src, dst } => {
+                let src = self.print_instr(src, kernel)?;
+                let dst = self.print_instr(dst, kernel)?;
+                Some(format!("{dst} = {src}"))
             },
         }
     }
-    pub fn print_instrs(&mut self, instrs: &[Instr]) {
-        for instr in instrs {
-            self.print_instr(instr);
+    pub fn print_instrs(&mut self, kernel: &Kernel) {
+        for id in kernel.roots.iter() {
+            if let Some(line) = self.print_instr(id, kernel) {
+                self.block.commit_line(line);
+            } else {
+                panic!("instr {id} cannot be parsed: {:?}", kernel.instrs[id.0]);
+            }
         }
     }
 }
 
 pub fn print_kernel(kernel: Kernel) -> String {
     let mut printer = Printer {
+        syms: Vec::new(),
+        params: Vec::new(),
         args: Vec::new(),
         block: Block::new(0),
     };
-    printer.print_instrs(&kernel.instrs);
+    printer.print_arg_declrs(&kernel);
+    printer.print_instrs(&kernel);
 
+    let sym_list = printer.syms.join("\n");
+    let param_list = printer.params.join(", ");
     let arg_list = printer.args.join(", ");
     let body = printer.block.lines.join("\n");
 
@@ -105,18 +163,22 @@ pub fn print_kernel(kernel: Kernel) -> String {
 import taichi as ti
 ti.init(ti.vulkan)
 
+{sym_list}
+
 @ti.kernel
-def f({arg_list}):
+def f({param_list}):
 {body}
 
+gb = ti.graph.GraphBuilder()
+gb.dispatch(f, {arg_list})
+g = gb.compile()
+
 m = ti.aot.Module(ti.vulkan)
-m.add_kernel(f)
-m.archive("tmp/module.tcm")
+m.add_graph('g', g)
+m.archive("module.tcm")
 "#);
 
-    println!("{}", python_script);
-
-    String::new()
+    python_script
 }
 
 #[cfg(test)]
@@ -132,14 +194,37 @@ mod tests {
             fn f(a: i32, b: f32, #[ti(ndim=2)] c: NdArray<i32>) {
                 let a = 1;
                 let b = 2;
-                a + b;
+                c[(a, a)] = a + b;
             }
         );
         let i: ItemFn = syn::parse2(tt).unwrap();
         let kernel = parse_kernel(&mut es, &i);
         es.panic();
 
-        print_kernel(kernel);
-        panic!();
+        let python_script = print_kernel(kernel);
+        println!("{}", python_script);
+        let expected = r#"
+import taichi as ti
+ti.init(ti.vulkan)
+
+sym_a = ti.graph.Arg(ti.graph.ArgKind.SCALAR, 'a', ti.i32)
+sym_b = ti.graph.Arg(ti.graph.ArgKind.SCALAR, 'b', ti.f32)
+sym_c = ti.graph.Arg(ti.graph.ArgKind.NDARRAY, 'c', ti.i32, field_dim=2)
+
+@ti.kernel
+def f(_a: ti.i32, _b: ti.f32, _c: ti.types.ndarray(ti.i32, field_dim=2)):
+    a = 1
+    b = 2
+    _c[(a, a)] = (a + b)
+
+gb = ti.graph.GraphBuilder()
+gb.dispatch(f, sym_a, sym_b, sym_c)
+g = gb.compile()
+
+m = ti.aot.Module(ti.vulkan)
+m.add_graph('g', g)
+m.archive("module.tcm")
+"#;
+        assert_eq!(expected, python_script);
     }
 }

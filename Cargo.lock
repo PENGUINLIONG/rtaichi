@@ -98,6 +98,7 @@ dependencies = [
  "quote",
  "syn",
  "taichi-runtime",
+ "taichi-sys",
  "tempdir",
 ]
 

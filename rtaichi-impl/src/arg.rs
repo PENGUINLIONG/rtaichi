@@ -6,13 +6,6 @@ pub struct KernelArg {
     pub name: String,
     pub ty: KernelArgType,
 }
-impl KernelArg {
-    /*
-    pub fn pytaichi_kernel_arg_ty(&self) -> String {
-        format!("{}: {}", self.name, self.ty.pytaichi_type())
-    }
-    */
-}
 
 struct ArgumentListParser<'ast> {
     es: &'ast mut ErrorStore,
@@ -90,7 +83,7 @@ pub fn parse_arg<'ast>(es: &'ast mut ErrorStore, i: &'ast FnArg) -> Option<Kerne
 mod tests {
     use super::*;
     use quote::quote;
-    use taichi_runtime::sys::TiDataType;
+    use taichi_sys::TiDataType;
 
     #[test]
     pub fn test_parse_f32_arg() {

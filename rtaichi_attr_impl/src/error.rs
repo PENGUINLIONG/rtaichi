@@ -3,7 +3,11 @@ pub type Result<T> = syn::Result<T>;
 #[macro_export]
 macro_rules! abort {
     ($span:expr, $($msg:expr),*) => {
-        return Err(syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg),*)))
+        {
+            let m = format!($($msg),*);
+            println!("{} ({:?})", &m, $span);
+            return Err(syn::Error::new(syn::spanned::Spanned::span($span), m));
+        }
     };
     ($es:expr => $res:block) => {
         match $res {
@@ -16,7 +20,9 @@ macro_rules! abort {
     };
     ($es:expr => ($span:expr, $($msg:expr),*)) => {
         {
-            let e = syn::Error::new(syn::spanned::Spanned::span($span), format!($($msg),*));
+            let m = format!($($msg),*);
+            println!("{} ({:?})", &m, $span);
+            let e = syn::Error::new(syn::spanned::Spanned::span($span), m);
             $es.push(e);
             return Default::default();
         }

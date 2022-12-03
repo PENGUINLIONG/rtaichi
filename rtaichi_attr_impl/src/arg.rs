@@ -83,7 +83,7 @@ pub fn parse_arg<'ast>(es: &'ast mut ErrorStore, i: &'ast FnArg) -> Option<Kerne
 mod tests {
     use super::*;
     use quote::quote;
-    use taichi_sys::TiDataType;
+    use taichi_runtime as ti;
 
     #[test]
     pub fn test_parse_f32_arg() {
@@ -92,7 +92,7 @@ mod tests {
         match parse_arg(&mut es, &i) {
             Some(KernelArg { name, ty: KernelArgType::Scalar { dtype } }) => {
                 assert_eq!(name, "a");
-                assert_eq!(dtype, TiDataType::F32);
+                assert_eq!(dtype, ti::DataType::F32);
             }
             _ => panic!(),
         }
@@ -105,7 +105,7 @@ mod tests {
         match parse_arg(&mut es, &i) {
             Some(KernelArg { name, ty: KernelArgType::Scalar { dtype } }) => {
                 assert_eq!(name, "a");
-                assert_eq!(dtype, TiDataType::I32);
+                assert_eq!(dtype, ti::DataType::I32);
             }
             _ => panic!(),
         }
@@ -118,7 +118,7 @@ mod tests {
         match parse_arg(&mut es, &i) {
             Some(KernelArg { name, ty: KernelArgType::NdArray { dtype, ndim } }) => {
                 assert_eq!(name, "a");
-                assert_eq!(dtype, TiDataType::I32);
+                assert_eq!(dtype, ti::DataType::I32);
                 assert_eq!(ndim, Some(2));
             }
             _ => panic!(),

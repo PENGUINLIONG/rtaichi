@@ -5,15 +5,15 @@ use syn::{visit::Visit, ItemFn, Block};
 use crate::{error::ErrorStore, instr::{Instr, Operand, InstrId, parse_instrs}, arg::parse_arg, abort};
 
 pub struct Kernel {
+    pub name: String,
     pub instrs: Vec<Instr>,
-    pub roots: Vec<InstrId>,
 }
 impl Kernel {
-    pub fn new() -> Self {
+    pub fn new(name: String) -> Self {
         Self {
+            name,
             // Instruction #0 is reserved. For simplicity it points to a nop.
             instrs: vec![Instr::new(InstrId(0), Operand::Nop{})],
-            roots: Vec::new(),
         }
     }
 
@@ -22,15 +22,6 @@ impl Kernel {
         let instr = Instr { id, operand };
         self.instrs.push(instr);
         id
-    }
-    pub fn reg_root_instr(&mut self, id: InstrId) {
-        // Don't repeatly register a root.
-        if let Some(x) = self.roots.last() {
-            if *x == id {
-                return;
-            }
-        }
-        self.roots.push(id);
     }
 }
 
@@ -52,14 +43,15 @@ impl<'ast> Visit<'ast> for  KernelParser<'ast> {
         }
     }
     fn visit_block(&mut self, i: &'ast Block) {
-        parse_instrs(self.es, &mut self.f, &self.bindings, i);
+        parse_instrs(self.es, &mut self.f, self.bindings.clone(), i);
     }
 }
 
 pub fn parse_kernel<'ast>(es: &'ast mut ErrorStore, i: &'ast ItemFn) -> Kernel {
+    let fn_name = i.sig.ident.to_string();
     let mut parser = KernelParser {
         es,
-        f: Kernel::new(),
+        f: Kernel::new(fn_name),
         bindings: HashMap::new(),
     };
     parser.visit_item_fn(i);
@@ -70,7 +62,7 @@ pub fn parse_kernel<'ast>(es: &'ast mut ErrorStore, i: &'ast ItemFn) -> Kernel {
 mod tests {
     use proc_macro2::TokenStream;
     use quote::quote;
-    use taichi_sys::TiDataType;
+    use taichi_runtime as ti;
     use crate::arg_ty::KernelArgType;
 
     use super::*;
@@ -88,6 +80,7 @@ mod tests {
         let kernel = parse_test_kernel(quote!(
             fn f() {}
         ));
+        assert_eq!(kernel.name, "f");
 
         for instr in kernel.instrs {
             match instr {
@@ -95,6 +88,14 @@ mod tests {
                     id: InstrId(0),
                     operand: Operand::Nop {},
                 } => {},
+                Instr {
+                    id: InstrId(1),
+                    operand: Operand::Block {
+                        instrs,
+                    },
+                } => {
+                    assert_eq!(instrs, vec![]);
+                },
                 _ => panic!(),
             }
         }
@@ -103,8 +104,9 @@ mod tests {
     #[test]
     fn test_arg_fn() {
         let kernel = parse_test_kernel(quote!(
-            fn f(a: i32, b: f32, #[ti(ndim=2)] c: NdArray<i32>) {}
+            fn foo(a: i32, b: f32, #[ti(ndim=2)] c: NdArray<i32>) {}
         ));
+        assert_eq!(kernel.name, "foo");
 
         for instr in kernel.instrs {
             match instr {
@@ -117,7 +119,7 @@ mod tests {
                     operand: Operand::Arg {
                         name,
                         ty: KernelArgType::Scalar {
-                            dtype: TiDataType::I32,
+                            dtype: ti::DataType::I32,
                         },
                     },
                 } if name == "a" => {},
@@ -126,7 +128,7 @@ mod tests {
                     operand: Operand::Arg {
                         name,
                         ty: KernelArgType::Scalar {
-                            dtype: TiDataType::F32,
+                            dtype: ti::DataType::F32,
                         },
                     },
                 } if name == "b" => {},
@@ -135,12 +137,20 @@ mod tests {
                     operand: Operand::Arg {
                         name,
                         ty: KernelArgType::NdArray {
-                            dtype: TiDataType::I32,
+                            dtype: ti::DataType::I32,
                             ndim: Some(2),
                         },
                     },
                 } if name == "c" => {},
-                _ => panic!(),
+                Instr {
+                    id: InstrId(4),
+                    operand: Operand::Block {
+                        instrs,
+                    },
+                } => {
+                    assert_eq!(instrs, vec![]);
+                },
+                _ => panic!("{instr:?}"),
             }
         }
     }

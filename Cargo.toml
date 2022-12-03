@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "rtaichi",
-    "rtaichi-impl",
+    "rtaichi_attr",
+    "rtaichi_attr_impl",
 ]

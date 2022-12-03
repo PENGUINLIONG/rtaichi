@@ -8,5 +8,6 @@ pub mod instr;
 pub mod kernel;
 
 pub mod print;
+pub mod macro_gen;
 
 pub use error::Result;

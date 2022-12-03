@@ -1,5 +1,5 @@
 use syn::{visit::Visit, TypePath, Type};
-use taichi_sys as sys;
+use taichi_runtime as ti;
 
 use crate::{error::ErrorStore, abort};
 
@@ -8,10 +8,10 @@ use crate::{error::ErrorStore, abort};
 pub enum KernelArgType {
     Void {},
     Scalar {
-        dtype: sys::TiDataType,
+        dtype: ti::DataType,
     },
     NdArray {
-        dtype: sys::TiDataType,
+        dtype: ti::DataType,
         ndim: Option<u32>,
     },
 }
@@ -91,17 +91,17 @@ pub fn parse_arg_ty<'ast>(
 
     let out = match x.ident.as_str() {
         // Primitive data types.
-        "f16" => KernelArgType::Scalar { dtype: sys::TiDataType::F16 },
-        "f32" => KernelArgType::Scalar { dtype: sys::TiDataType::F32 },
-        "f64" => KernelArgType::Scalar { dtype: sys::TiDataType::F64 },
-        "i8" => KernelArgType::Scalar { dtype: sys::TiDataType::I8 },
-        "i16" => KernelArgType::Scalar { dtype: sys::TiDataType::I16 },
-        "i32" => KernelArgType::Scalar { dtype: sys::TiDataType::I32 },
-        "i64" => KernelArgType::Scalar { dtype: sys::TiDataType::I64 },
-        "u8" => KernelArgType::Scalar { dtype: sys::TiDataType::U8 },
-        "u16" => KernelArgType::Scalar { dtype: sys::TiDataType::U16 },
-        "u32" => KernelArgType::Scalar { dtype: sys::TiDataType::U32 },
-        "u64" => KernelArgType::Scalar { dtype: sys::TiDataType::U64 },
+        "f16" => KernelArgType::Scalar { dtype: ti::DataType::F16 },
+        "f32" => KernelArgType::Scalar { dtype: ti::DataType::F32 },
+        "f64" => KernelArgType::Scalar { dtype: ti::DataType::F64 },
+        "i8" => KernelArgType::Scalar { dtype: ti::DataType::I8 },
+        "i16" => KernelArgType::Scalar { dtype: ti::DataType::I16 },
+        "i32" => KernelArgType::Scalar { dtype: ti::DataType::I32 },
+        "i64" => KernelArgType::Scalar { dtype: ti::DataType::I64 },
+        "u8" => KernelArgType::Scalar { dtype: ti::DataType::U8 },
+        "u16" => KernelArgType::Scalar { dtype: ti::DataType::U16 },
+        "u32" => KernelArgType::Scalar { dtype: ti::DataType::U32 },
+        "u64" => KernelArgType::Scalar { dtype: ti::DataType::U64 },
         // Opaque types.
         "NdArray" => {
             if x.gen_args.len() != 1 {
@@ -124,7 +124,6 @@ pub fn parse_arg_ty<'ast>(
 mod tests {
     use super::*;
     use quote::quote;
-    use taichi_sys::TiDataType;
 
     #[test]
     fn test_parse_i32() {
@@ -132,7 +131,7 @@ mod tests {
         let i: Type = syn::parse2(quote!(i32)).unwrap();
         match parse_arg_ty(&mut es, &i) {
             Some(KernelArgType::Scalar { dtype }) => {
-                assert_eq!(dtype, TiDataType::I32);
+                assert_eq!(dtype, ti::DataType::I32);
             },
             _ => panic!(),
         }
@@ -145,7 +144,7 @@ mod tests {
         let i: Type = syn::parse2(quote!(f32)).unwrap();
         match parse_arg_ty(&mut es, &i) {
             Some(KernelArgType::Scalar { dtype }) => {
-                assert_eq!(dtype, TiDataType::F32);
+                assert_eq!(dtype, ti::DataType::F32);
             },
             _ => panic!(),
         }
@@ -158,7 +157,7 @@ mod tests {
         let i: Type = syn::parse2(quote!(NdArray<f32>)).unwrap();
         match parse_arg_ty(&mut es, &i) {
             Some(KernelArgType::NdArray { dtype, ndim }) => {
-                assert_eq!(dtype, TiDataType::F32);
+                assert_eq!(dtype, ti::DataType::F32);
                 assert_eq!(ndim, None);
             }
             _ => panic!(),

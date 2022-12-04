@@ -1,7 +1,6 @@
 # rTaichi: Taichi Frontend for Rust
 
 [![Crate](https://img.shields.io/crates/v/rtaichi)](https://crates.io/crates/rtaichi)
-[![Documentation](https://docs.rs/rtaichi/badge.svg)](https://docs.rs/rtaichi)
 
 This repository lies the code for the Taichi Hackathon 2022 project "rtaichi".
 

@@ -165,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "taichi-runtime"
-version = "0.0.5+1.3.0"
+version = "0.0.7+1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8495352484aa8b2acd516c7f681ab02e32924b0990cf48fab3c5997d5d34a689"
+checksum = "8b23e00b2640afca1f518d58c7eeb3fd9cad488c4a3264a67dbcb41399ed04cb"
 dependencies = [
  "bitflags",
  "taichi-sys",
@@ -175,9 +175,9 @@ dependencies = [
 
 [[package]]
 name = "taichi-sys"
-version = "0.0.5+1.3.0"
+version = "0.0.8+1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "153b99d36a7be81c8fa7a81707e7f68f0f2ef97597b9c890711917e857a24f5c"
+checksum = "2eff244a4a28116afca28f49b8ee8f25ca98e1514baa492aa1c3257cae10512f"
 dependencies = [
  "bitflags",
  "dotenvy",

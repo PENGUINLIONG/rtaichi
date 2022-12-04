@@ -10,5 +10,5 @@ description = "Rust language binding to the Taichi Runtime C-API."
 
 [dependencies]
 rtaichi_attr = { version = "0.0.1", path = "../rtaichi_attr" }
-taichi-runtime = "0.0.5"
+taichi-runtime = "0.0.7"
 ref_thread_local = "0.1.1"

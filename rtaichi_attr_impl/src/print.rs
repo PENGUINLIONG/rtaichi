@@ -278,6 +278,7 @@ pub fn print_kernel(kernel: &Kernel, base_dir: &str) -> String {
     let arg_list = printer.args.join(", ");
 
     let body = printer.print_instrs(kernel);
+    let base_dir = base_dir.replace("\\", "/");
 
     let python_script = format!(r#"
 import taichi as ti

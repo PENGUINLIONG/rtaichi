@@ -9,7 +9,7 @@ description = "Rust language binding to the Taichi Runtime C-API."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-taichi-runtime = "0.0.5"
+taichi-runtime = "0.0.7"
 syn = { version = "1.0", features = ["full", "extra-traits", "visit"] }
 quote = "1.0"
 proc-macro2 = "1.0"

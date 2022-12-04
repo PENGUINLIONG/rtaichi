@@ -1,7 +1,7 @@
 [package]
 name = "rtaichi"
 authors = ["PENGUINLIONG <admin@penguinliong.moe>"]
-version = "0.0.4+1.3.0"
+version = "0.0.5+1.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Rust language binding to the Taichi Runtime C-API."
@@ -9,6 +9,6 @@ description = "Rust language binding to the Taichi Runtime C-API."
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rtaichi_attr = { version = "0.0.1", path = "../rtaichi_attr" }
+rtaichi_attr = { version = "0.0.2", path = "../rtaichi_attr" }
 taichi-runtime = "0.0.7"
 ref_thread_local = "0.1.1"

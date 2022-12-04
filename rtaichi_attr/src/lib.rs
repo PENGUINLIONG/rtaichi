@@ -3,6 +3,8 @@ use proc_macro_error::{abort, proc_macro_error, ResultExt};
 use rtaichi_attr_impl::{kernel::parse_kernel, error::ErrorStore, print::print_kernel, macro_gen::gen_kernel_interface_tt};
 use syn::ItemFn;
 
+/// Mark a Rust function as a Taichi kernel. The kernel is AOT compiled into a
+/// module lazily loaded when the kernel is invoked.
 #[proc_macro_error]
 #[proc_macro_attribute]
 pub fn kernel(attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
